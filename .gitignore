@@ -1,0 +1,7 @@
+# The plugin ships only what package.json's "files" lists; keep the repo to the
+# same shape so a checkout and an installed copy stay comparable.
+node_modules/
+*.log
+
+# Test scratch (test.mjs writes none, but keep local runs clean).
+test-tmp.mjs

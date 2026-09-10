@@ -1,0 +1,69 @@
+{
+  "name": "dsh-spend",
+  "version": "0.6.3",
+  "description": "dsh-spend rendered as a sidebar card (two rows: this month / today) with a click-to-open dashboard modal, for the dsh web UI",
+  "type": "module",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./stats": {
+      "default": "./lib/stats.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "token",
+    "usage",
+    "tokens",
+    "billing",
+    "cost",
+    "spend",
+    "monitoring",
+    "plugin",
+    "codex",
+    "opencode"
+  ],
+  "license": "MIT",
+  "author": "skxingyu (sidebar/modal modifications); ziheng <wn345361049@gmail.com> (original dsh-spend)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/skxingyu/dsh-spend-sidebar.git"
+  },
+  "homepage": "https://github.com/skxingyu/dsh-spend-sidebar#readme",
+  "bugs": {
+    "url": "https://github.com/skxingyu/dsh-spend-sidebar/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-credentials": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  }
+}
