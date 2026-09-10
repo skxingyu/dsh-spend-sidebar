@@ -157,10 +157,22 @@ for (const key of ["card.thisMonth", "card.today"]) {
 	assert.equal(definitions.length, 2, `${key} must be defined in both zh and en`);
 }
 
-// Standalone identity: the fork must not answer to the upstream plugin's
-// names, so it can be installed alongside (or instead of) it.
+// Standalone identity: the fork must not answer to the upstream plugin's names.
 assert.ok(!registered.has("dsh-spend"), "must not register under the upstream id");
 assert.ok(sourceLines.some((l) => l.includes('tagId = "dsh-spend-sidebar"')), "style tag carries the fork's id");
+
+// The host half must still claim the `usageStats` service: the dashboard
+// depends on it and the client calls `usageStats/query`. This is also WHY the
+// fork cannot be bundled together with upstream -- two providers of one
+// service make the whole plugin tree fail to load ("service usageStats has
+// been registered"). Pinning the name here keeps that coupling, and the
+// installer's "remove upstream from bundles" rule, from being silently undone.
+const hostSource = await readFile(path.join(HERE, "lib", "index.js"), "utf8");
+assert.ok(/super\(ctx,\s*"usageStats"\)/.test(hostSource), "host half must register the usageStats service");
+assert.ok(
+	/name:\s*'dsh-spend-sidebar'/.test(await readFile(path.join(HERE, "cordis.patch.yml"), "utf8")),
+	"the bundle patch must name the fork, not upstream",
+);
 
 console.log("✓ registers sidebar.footer.action (order %d, after billing)", def.order);
 console.log("✓ registers as dsh-spend-sidebar, not the upstream dsh-spend");

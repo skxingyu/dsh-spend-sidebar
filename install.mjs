@@ -37,6 +37,8 @@ import os from "node:os";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG = "dsh-spend-sidebar";
+/** The fork replaced this package; both must never be bundled at once. */
+const UPSTREAM_PKG = "dsh-spend";
 const ARGS = process.argv.slice(2);
 const DRY_RUN = ARGS.includes("--dry-run");
 const UNINSTALL = ARGS.includes("--uninstall");
@@ -102,10 +104,14 @@ if (UNINSTALL) {
 // --- install --------------------------------------------------------------
 const files = await packageFiles();
 if (DRY_RUN) {
+	const current = manifest.dsh?.profile?.bundles ?? [];
 	console.log("\nwould copy:");
 	for (const rel of files) console.log(`  ${rel}`);
 	console.log(`  (recursively, for lib/)`);
 	console.log(`would append to bundles    : ${PKG}`);
+	if (current.includes(UPSTREAM_PKG)) {
+		console.log(`would REMOVE from bundles  : ${UPSTREAM_PKG} (both register \`usageStats\`)`);
+	}
 	process.exit(0);
 }
 
@@ -127,9 +133,25 @@ if (!(await exists(path.join(target, "lib", "client.js")))) {
 	process.exit(1);
 }
 
-// 2. bundle entry — appended, never reordered, so third-party order is kept.
+// 2. Bundle list.
+//
+// Two things matter here:
+//
+//   - The fork must be appended (and third-party order preserved).
+//   - The upstream `dsh-spend` MUST be removed if present. Both host halves
+//     register the Cordis service `usageStats`, and a service may only be
+//     provided once, so leaving both bundled makes the whole plugin tree fail
+//     to load: `service "usageStats" has been registered`. Giving the fork a
+//     distinct row id does NOT avoid this -- distinct ids mean both rows are
+//     active, where a shared id would have made one shadow the other.
+//
+// Raising the disable flag is not an option: Desktop only honours
+// `disabledBundles` from plugin-management state when the market provider is
+// `community`, and otherwise forces the set empty.
 const currentBundles = manifest.dsh?.profile?.bundles ?? [];
-const bundles = currentBundles.includes(PKG) ? currentBundles : [...currentBundles, PKG];
+const removed = currentBundles.filter((b) => b === UPSTREAM_PKG);
+const kept = currentBundles.filter((b) => b !== UPSTREAM_PKG);
+const bundles = kept.includes(PKG) ? kept : [...kept, PKG];
 
 const backup = `${profilePkgPath}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
 await cp(profilePkgPath, backup, { force: true });
@@ -139,6 +161,10 @@ await writeFile(profilePkgPath, `${JSON.stringify({
 }, null, 2)}\n`, "utf8");
 
 console.log(`\n✓ installed ${PKG}`);
-console.log(`  bundles : ${bundles.length} entries${currentBundles.includes(PKG) ? " (already present)" : " (+1)"}`);
+console.log(`  bundles : ${bundles.length} entries${kept.includes(PKG) ? " (already present)" : " (+1)"}`);
+if (removed.length > 0) {
+	console.log(`  replaced: removed ${UPSTREAM_PKG} from the bundle list`);
+	console.log(`            (${path.join(profileDir, "node_modules", UPSTREAM_PKG)} left on disk)`);
+}
 console.log(`  backup  : ${path.basename(backup)}`);
-console.log("\n  refresh the DSH Web GUI to pick up the client bundle");
+console.log("\n  restart DSH Desktop: the host half is composed at startup");
