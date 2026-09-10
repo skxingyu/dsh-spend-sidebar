@@ -61,8 +61,8 @@ globalThis.document = {
 
 await import(`file://${path.join(HERE, "lib", "client.js").replace(/\\/g, "/")}`);
 
-const mod = registered.get("dsh-spend");
-assert.ok(mod, "bundle registered itself as dsh-spend");
+const mod = registered.get("dsh-spend-sidebar");
+assert.ok(mod, "bundle registered itself as dsh-spend-sidebar");
 
 // --- fake ctx -------------------------------------------------------------
 const registrations = [];
@@ -157,7 +157,13 @@ for (const key of ["card.thisMonth", "card.today"]) {
 	assert.equal(definitions.length, 2, `${key} must be defined in both zh and en`);
 }
 
+// Standalone identity: the fork must not answer to the upstream plugin's
+// names, so it can be installed alongside (or instead of) it.
+assert.ok(!registered.has("dsh-spend"), "must not register under the upstream id");
+assert.ok(sourceLines.some((l) => l.includes('tagId = "dsh-spend-sidebar"')), "style tag carries the fork's id");
+
 console.log("✓ registers sidebar.footer.action (order %d, after billing)", def.order);
+console.log("✓ registers as dsh-spend-sidebar, not the upstream dsh-spend");
 console.log("✓ supplies { t, query } to the component");
 console.log("✓ does not mount a floating overlay on document.body");
 console.log("✓ no hover handlers; click opens a portal modal");

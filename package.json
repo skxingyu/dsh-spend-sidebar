@@ -1,7 +1,7 @@
 {
-  "name": "dsh-spend",
+  "name": "dsh-spend-sidebar",
   "version": "0.6.3",
-  "description": "dsh-spend rendered as a sidebar card (two rows: this month / today) with a click-to-open dashboard modal, for the dsh web UI",
+  "description": "Standalone dsh usage dashboard: a sidebar card (this month / today) that opens a centred modal. Fork of nonewind/dsh-spend.",
   "type": "module",
   "main": "lib/index.js",
   "scripts": {

@@ -1,19 +1,23 @@
-# dsh-spend bundle patch — inserts the `usage-stats` row into the profile.
+# dsh-spend-sidebar bundle patch — inserts the `usage-stats-sidebar` row.
 #
 # The plugin ships a built-in provider knowledge base (17 providers / 131
 # models, lib/knowledge.js): pricing and billing plans are auto-detected, so
 # no config is required. To override anything, add a row with the same id
-# (`usage-stats`) to your profile's cordis.patch.yml — the user layer is
+# (`usage-stats-sidebar`) to your profile's cordis.patch.yml — the user layer is
 # applied after bundle layers and the same-id row wins.
+#
+# The row id is deliberately distinct from upstream dsh-spend's `usage-stats`:
+# the two may be installed side by side, and identical ids would make one
+# plugin's row shadow the other's.
 - insert:
-    - id: usage-stats
-      name: 'dsh-spend'
+    - id: usage-stats-sidebar
+      name: 'dsh-spend-sidebar'
       config:
         currency: USD            # CNY (¥) or USD ($)
         maxSessions: 20          # max rows in the by-session table
         maxRecentCalls: 50       # max recent calls
         seriesHours: 168         # time-series window in hours (zero-filled; UI offers 24h/72h/7d)
-        refreshSeconds: 30       # floating-window auto-refresh interval (s)
+        refreshSeconds: 30       # card auto-refresh interval (s)
         usdCnyRate: 7.2          # fixed fallback for the UI's USD ↔ CNY switch (1 USD in CNY)
         liveRate: true           # host refreshes a live USD→CNY quote (6h cache) when reachable
         # pricing: [...]         # optional explicit per-model rates (overrides auto-detection)

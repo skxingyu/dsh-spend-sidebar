@@ -1,10 +1,14 @@
 # dsh-spend-sidebar
 
-把 [dsh-spend](https://github.com/nonewind/dsh-spend) 的用量卡片从**右下角悬浮窗**搬到
-**左侧边栏底部**，并把「展开详情」改成一个**居中弹出的大窗口**。
+一个**独立的** DSH 用量仪表盘插件：把用量做成侧边栏底部的双行卡片，点击弹出居中大窗口。
 
-> **这是第三方改造版，不是上游。** 原项目 [nonewind/dsh-spend](https://github.com/nonewind/dsh-spend)
-> 由 ziheng 开发，MIT 许可。本仓库保留其数据层，只改交互与展示形态。上游历史文档见
+- 侧边栏卡片：**当月** 费用 + Token / **今日** 费用 + Token
+- 点击卡片 → 居中模态框，四个标签页的完整仪表盘
+- 零配置：内置 17 家厂商 / 131 个模型的定价知识库，自动识别 Code / Token 计费
+- **不依赖上游 dsh-spend**，两者可并存或只用其一
+
+> 本项目基于 [nonewind/dsh-spend](https://github.com/nonewind/dsh-spend)（作者 ziheng，
+> MIT 许可）改造：保留其 host 数据层，重做挂载方式与展示形态，并独立命名。上游历史文档见
 > [`UPSTREAM.README.md`](UPSTREAM.README.md)（描述的是改造前行为）。
 
 ---
@@ -32,9 +36,19 @@
 | 卡片 | 单行：总费用 + 总 Token | **两行**：当月 / 今日 |
 | 悬停 | 120ms 后弹出摘要浮层 | 无响应 |
 | 点击 | 侧边栏内联面板（很窄） | 居中模态框，宽 `min(920px, 100vw-48px)` |
+| 包 / 行 id | `dsh-spend` / `usage-stats` | `dsh-spend-sidebar` / `usage-stats-sidebar` |
 
 保留不变：`usageStats/query` RPC、多厂商定价知识库、余额/套餐探测、四标签页仪表盘、
 CSV / JSON 导出、`cordis.patch.yml` 的配置项。
+
+命名与 id 全部换新，是为了让它**独立可装**：包名、客户端 bundle id、cordis 行 id、
+CSS 的 `data-plugin` tag 都不与上游撞车，因此可以和上游并存而互不干扰（同槽位靠
+`order` 排序，同 id 才不会互相覆盖）。
+
+> 两处刻意**没有**改名：`usageStats` 这个 Remote 服务名与 `usageStats/query` 路由
+> （host 与 client 一起发布，属于内部契约），以及 localStorage 里的
+> `dsh-spend:currency`（改名会丢掉你已选的显示货币）。导出的 CSV/JSON 文件名已经换成
+> 新名字。
 
 ### 两行的口径
 
@@ -64,27 +78,51 @@ CSV / JSON 导出、`cordis.patch.yml` 的配置项。
 
 ## 安装
 
-本仓库是**源码副本**，通过脚本写入本机 DSH profile（不发布到 npm）：
+本插件**独立自包含**：它不依赖、不扩展、也不需要上游 `dsh-spend`。它有自己的一套
+host 半边、自己的客户端 bundle id（`dsh-spend-sidebar`）、自己的 cordis 行 id
+（`usage-stats-sidebar`），因此可以和上游并存，也可以单独装。
+
+本仓库是源码副本，用脚本装进 DSH profile（**不发布到 npm**）：
 
 ```bash
-node install.mjs            # 写入 ~/.dsh/profiles/desktop/node_modules/dsh-spend
-node install.mjs --dry-run  # 只预览要复制什么
+node install.mjs             # 复制文件 + 写进 dsh.profile.bundles
+node install.mjs --dry-run   # 只预览
 node install.mjs --profile web
+node install.mjs --uninstall # 只摘掉 bundles 条目，目录保留
 ```
 
-安装后**刷新浏览器页面**生效（客户端 bundle 走浏览器缓存；host 半边未改动，无需重启）。
+脚本做两件事：把 `lib/` 与清单文件复制到
+`~/.dsh/profiles/<profile>/node_modules/dsh-spend-sidebar/`，再把这个包名追加到
+`dsh.profile.bundles`。第二件是必须的 —— 加载器只**过滤**现有的 bundles 列表
+（`desktopBundleList`），从不依据 `dependencies` 推导它。脚本会先备份 `package.json`，
+且是幂等的，重复运行不会写重复条目。
 
-前提：目标 profile 里已经装了 `dsh-spend`（`dsh plugin add dsh-spend`），且
-`package.json` 的 `dsh.profile.bundles` 含 `"dsh-spend"`。脚本只在缺 bundles 条目时
-**警告**，不会替你改 profile —— 那是用户自己的决定。
+**不**写 `dependencies` 条目：DSH 对每个 bundle 用标准 Node 模块解析从 profile 目录
+找包，再读它的 `dsh.bundle.patch`（见 `package-overlay-*.js` 的 `readCandidate`），
+一个普通目录就够了。写 `file:` 反而把路径变成长期契约：仓库一挪，下次 `pnpm install`
+就崩，而复制这一步已经让那个声明多余了。
 
-> ⚠️ `dsh plugin update` 或重装 dsh-spend 会覆盖目标目录，重跑 `install.mjs` 即可。
+> 加载器要求找到的 manifest 的 `name` **严格等于** bundle 名，所以目录名和
+> `package.json` 的 `name` 都必须保持 `dsh-spend-sidebar`。
 
-### 包名为什么还叫 `dsh-spend`
+改完 host 半边后需要**重启 DSH Desktop**（插件在启动时组合）；只改客户端 bundle 的话
+刷新页面即可。`dsh plugin` 的重装不会覆盖本插件 —— 它不来自 registry。
 
-profile 通过包名解析插件（`dependencies` + `dsh.profile.bundles` 都写的是 `dsh-spend`），
-改名会导致装不上。所以 `package.json` 的 `name` 保持不变，只更正了 `description`、
-`author`、`repository` 这些元数据。
+### 与上游 dsh-spend 的关系
+
+两者可以并存（行 id 不同、客户端 id 不同、CSS tag 不同）。若你只想留一个，建议
+**按包名禁用上游**，而不是删文件：DSH 的禁用状态在
+`%APPDATA%\DSH Desktop\plugin-management\state.json`：
+
+```json
+{ "version": 1, "profiles": [ { "profileName": "desktop", "disabledBundles": ["dsh-spend"] } ] }
+```
+
+（schema 见 `desktop-plugins.js` 的 `parseState`；`version` 必须是 `1`。）
+
+> 注意：往 profile 的 `cordis.patch.yml` 里写 `- id: usage-stats` + `disabled: true`
+> **无效** —— 该层能禁用上游自带的层行（如 `strata`），但匹配不到 bundle 层
+> `insert` 进去的行。这条我实测过，所以没采用。
 
 ## 测试
 
@@ -99,6 +137,7 @@ node test.mjs
 - 点击走 `createPortal` 弹窗，内联 `dsu-panel` 已消失
 - 两行分别渲染当月 / 今日的费用与 Token，且当月由日行求和
 - `card.thisMonth` / `card.today` 在中英两个字典里都有定义
+- 以 `dsh-spend-sidebar` 注册，**不**占用上游的 `dsh-spend` id
 
 这些断言都反证过确实能捕捉回归：把 `order` 改回 `-10`、给卡片加回 `onMouseEnter`、
 或删掉英文的 `card.today`，测试都会以非零码失败。
@@ -110,8 +149,8 @@ lib/client.js         浏览器半边：卡片 + 模态框（本仓库的主要�
 lib/index.js          host 半边：usageStats/query、定价、余额探测
 lib/stats.js          聚合与统计
 lib/knowledge.js      内置厂商/模型定价知识库
-cordis.patch.yml      profile 插入条目与默认配置
-install.mjs           安装脚本
+cordis.patch.yml      profile 插入条目（行 id `usage-stats-sidebar`）与默认配置
+install.mjs           安装 / 卸载脚本
 test.mjs              冒烟测试
 UPSTREAM.README*.md   上游原始文档（未改动，已标注为历史）
 ```

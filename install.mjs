@@ -1,27 +1,45 @@
 #!/usr/bin/env node
 /**
- * Install this modified dsh-spend into the live DSH desktop profile.
+ * Install dsh-spend-sidebar into a DSH profile as a STANDALONE plugin.
  *
- * dsh-spend normally renders a floating pill on `document.body`; this copy
- * registers the standard `sidebar.footer.action` slot instead, so the card
- * sits above the settings row in the left sidebar (the position
- * @kenz1117/dsh-ui-usage-billing uses).
+ * This fork is self-contained: it does not depend on, extend, or require the
+ * upstream `dsh-spend` package. It ships its own host half, its own client
+ * bundle id, and its own cordis row id (`usage-stats-sidebar`), so it can be
+ * installed alongside upstream or on its own.
  *
- * `dsh.profile.patchReload: "live"` in the profile package.json means the host
- * picks the change up without a restart; a page refresh reloads the client
- * bundle. Re-run after `dsh plugin update` / npm reinstalls, which overwrite
- * the target directory.
+ * What it does, in order:
+ *   1. copy the plugin payload into <profile>/node_modules/dsh-spend-sidebar
+ *   2. append it to `dsh.profile.bundles`, which is what actually loads it
+ *      (`desktopBundleList` only filters the existing list — it never derives
+ *      it from `dependencies`, so this step is required)
  *
- * Usage: node install.mjs [--profile <name>] [--dry-run]
+ * No `dependencies` entry is written. DSH resolves each bundle with plain Node
+ * module resolution from the profile directory and then reads
+ * `dsh.bundle.patch` from the found manifest (`package-overlay-*.js`,
+ * `readCandidate`), so a plain directory is enough. Declaring a `file:` spec
+ * instead would make the path a persistent contract: moving this checkout
+ * would break the next `pnpm install`, which the copy step has already made
+ * unnecessary.
+ *
+ * Verified in the loader: the found manifest's `name` must equal the bundle
+ * name exactly, so the directory name and package.json name must both stay
+ * `dsh-spend-sidebar`.
+ *
+ * Step 2 edits a profile file, so the script backs up package.json first and
+ * is idempotent: re-running never duplicates an entry.
+ *
+ * Usage: node install.mjs [--profile <name>] [--dry-run] [--uninstall]
  */
-import { cp, readFile, writeFile, access } from "node:fs/promises";
+import { cp, readFile, writeFile, access, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const PKG = "dsh-spend-sidebar";
 const ARGS = process.argv.slice(2);
 const DRY_RUN = ARGS.includes("--dry-run");
+const UNINSTALL = ARGS.includes("--uninstall");
 
 function argValue(flag) {
 	const at = ARGS.indexOf(flag);
@@ -29,12 +47,12 @@ function argValue(flag) {
 }
 
 const profile = argValue("--profile") ?? "desktop";
-const profilesRoot = path.join(os.homedir(), ".dsh", "profiles");
-const profileDir = path.join(profilesRoot, profile);
-const target = path.join(profileDir, "node_modules", "dsh-spend");
+const profileDir = path.join(os.homedir(), ".dsh", "profiles", profile);
+const target = path.join(profileDir, "node_modules", PKG);
+const profilePkgPath = path.join(profileDir, "package.json");
 
-/** Files that make up the plugin; the rest of the source tree is not shipped. */
-const FILES = ["package.json", "cordis.patch.yml", "LICENSE"];
+/** Top-level files that make up the plugin (lib/ is copied separately). */
+const FILES = ["package.json", "cordis.patch.yml", "LICENSE", "README.md"];
 
 async function exists(p) {
 	try {
@@ -45,45 +63,82 @@ async function exists(p) {
 	}
 }
 
-if (!(await exists(target))) {
-	console.error(`✗ plugin not found at ${target}`);
-	console.error("  Install it first with: dsh plugin add dsh-spend");
-	process.exit(1);
+async function packageFiles() {
+	// The built plugin ships only `lib` + manifest bits; copy `lib` wholesale.
+	return ["lib"].concat(FILES.filter((f) => f !== "README.md"));
 }
 
-// The bundle list is what actually loads the plugin. Report it rather than
-// silently patching it: a missing entry is a user decision, not a file copy.
-const profilePkgPath = path.join(profileDir, "package.json");
-let bundles = [];
-try {
-	const pkg = JSON.parse(await readFile(profilePkgPath, "utf8"));
-	bundles = pkg?.dsh?.profile?.bundles ?? [];
-} catch {
-	// A missing/unreadable profile package.json is reported below, not fatal here.
+async function readProfile() {
+	try {
+		return JSON.parse(await readFile(profilePkgPath, "utf8"));
+	} catch {
+		return null;
+	}
 }
 
 console.log(`profile : ${profileDir}`);
 console.log(`target  : ${target}`);
-console.log(`mode    : ${DRY_RUN ? "dry-run (no writes)" : "install"}`);
+console.log(`mode    : ${DRY_RUN ? "dry-run (no writes)" : UNINSTALL ? "uninstall" : "install"}`);
 
-if (!bundles.includes("dsh-spend")) {
-	console.warn('⚠ "dsh-spend" is not in dsh.profile.bundles — the plugin will not load.');
+const manifest = await readProfile();
+if (manifest === null) {
+	console.error(`✗ no readable profile package.json at ${profilePkgPath}`);
+	process.exit(1);
 }
 
-if (DRY_RUN) {
-	console.log("\nwould copy:");
-	for (const rel of FILES) console.log(`  ${rel}`);
-	console.log("  lib/**");
+// --- uninstall ------------------------------------------------------------
+if (UNINSTALL) {
+	const bundles = (manifest.dsh?.profile?.bundles ?? []).filter((b) => b !== PKG);
+	if (DRY_RUN) {
+		console.log("\nwould remove: the bundle entry, and the node_modules directory");
+		process.exit(0);
+	}
+	await writeFile(profilePkgPath, `${JSON.stringify({ ...manifest, dsh: { ...manifest.dsh, profile: { ...manifest.dsh.profile, bundles } } }, null, 2)}\n`, "utf8");
+	console.log(`\n✓ unregistered ${PKG}`);
+	console.log(`  ${target} was left in place — delete it manually if you want it gone`);
 	process.exit(0);
 }
 
-// Copy the plugin payload. cp with recursive:true merges directories, which is
-// what we want: lib/providers/ is part of the tree and must land too.
-await cp(path.join(HERE, "lib"), path.join(target, "lib"), { recursive: true, force: true });
-for (const rel of FILES) {
-	const from = path.join(HERE, rel);
-	if (await exists(from)) await cp(from, path.join(target, rel), { force: true });
+// --- install --------------------------------------------------------------
+const files = await packageFiles();
+if (DRY_RUN) {
+	console.log("\nwould copy:");
+	for (const rel of files) console.log(`  ${rel}`);
+	console.log(`  (recursively, for lib/)`);
+	console.log(`would append to bundles    : ${PKG}`);
+	process.exit(0);
 }
 
-console.log("\n✓ installed");
-console.log("  refresh the DSH Web GUI to pick up the client bundle");
+// 1. payload
+await cp(HERE, target, {
+	recursive: true,
+	force: true,
+	// Only ship what the plugin needs: copying the whole repo would drag in
+	// .git and the test file.
+	filter: (src) => {
+		const rel = path.relative(HERE, src);
+		if (rel === "") return true;
+		const top = rel.split(path.sep)[0];
+		return ["lib", "package.json", "cordis.patch.yml", "LICENSE"].includes(top);
+	}
+});
+if (!(await exists(path.join(target, "lib", "client.js")))) {
+	console.error(`✗ copy failed: ${path.join(target, "lib", "client.js")} missing`);
+	process.exit(1);
+}
+
+// 2. bundle entry — appended, never reordered, so third-party order is kept.
+const currentBundles = manifest.dsh?.profile?.bundles ?? [];
+const bundles = currentBundles.includes(PKG) ? currentBundles : [...currentBundles, PKG];
+
+const backup = `${profilePkgPath}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+await cp(profilePkgPath, backup, { force: true });
+await writeFile(profilePkgPath, `${JSON.stringify({
+	...manifest,
+	dsh: { ...manifest.dsh, profile: { ...manifest.dsh.profile, bundles } }
+}, null, 2)}\n`, "utf8");
+
+console.log(`\n✓ installed ${PKG}`);
+console.log(`  bundles : ${bundles.length} entries${currentBundles.includes(PKG) ? " (already present)" : " (+1)"}`);
+console.log(`  backup  : ${path.basename(backup)}`);
+console.log("\n  refresh the DSH Web GUI to pick up the client bundle");
