@@ -91,19 +91,40 @@ node install.mjs --profile web
 node install.mjs --uninstall # 只摘掉 bundles 条目，目录保留
 ```
 
-脚本做两件事：把 `lib/` 与清单文件复制到
-`~/.dsh/profiles/<profile>/node_modules/dsh-spend-sidebar/`，再把这个包名追加到
-`dsh.profile.bundles`。第二件是必须的 —— 加载器只**过滤**现有的 bundles 列表
-（`desktopBundleList`），从不依据 `dependencies` 推导它。脚本会先备份 `package.json`，
-且是幂等的，重复运行不会写重复条目。
+脚本做三件事：
 
-**不**写 `dependencies` 条目：DSH 对每个 bundle 用标准 Node 模块解析从 profile 目录
-找包，再读它的 `dsh.bundle.patch`（见 `package-overlay-*.js` 的 `readCandidate`），
-一个普通目录就够了。写 `file:` 反而把路径变成长期契约：仓库一挪，下次 `pnpm install`
+1. 把 `lib/` 与清单文件复制到
+   `~/.dsh/profiles/<profile>/node_modules/dsh-spend-sidebar/`
+2. 把包名追加到 `dsh.profile.bundles` —— 这一步是必须的，加载器只**过滤**现有的
+   bundles 列表（`desktopBundleList`），从不依据 `dependencies` 推导它
+3. 把上游 `dsh-spend` 从 bundles（以及 `dependencies`，若该 profile 是 pnpm 管理的）
+   里**移除** —— 两者不能共存，原因见下
+
+脚本会先备份 `package.json`，且是幂等的，重复运行不会写重复条目。
+
+**不**给本插件写 `dependencies` 条目：DSH 对每个 bundle 用标准 Node 模块解析从 profile
+目录找包，再读它的 `dsh.bundle.patch`（见 `package-overlay-*.js` 的 `readCandidate`），
+一个普通目录就够了。写 `file:` 反而把仓库路径变成长期契约：仓库一挪，下次 `pnpm install`
 就崩，而复制这一步已经让那个声明多余了。
 
 > 加载器要求找到的 manifest 的 `name` **严格等于** bundle 名，所以目录名和
 > `package.json` 的 `name` 都必须保持 `dsh-spend-sidebar`。
+
+### 桌面 profile 与 web profile
+
+两个 profile 结构不同，脚本都支持：
+
+| | `desktop` | `web` |
+|---|---|---|
+| 依赖声明 | 无（只有 bundles） | pnpm 管理，`dependencies` + `bundles` 都有 |
+| 启动方式 | DSH Desktop 组合 | `dsh --profile web` |
+| 脚本动作 | 复制 + 改 bundles | 复制 + 改 bundles + 改 dependencies |
+
+web profile 的 `dshmarket` 只对「在 `dependencies` 但不在 `bundles`」的包做热挂载，
+所以移除上游时**两处都要清**，否则 `pnpm install` 会把没人加载的包装回来。
+
+> 两个 profile 各自的 `cordis.patch.yml` 里若残留 `- id: usage-stats` 条目，去掉即可 ——
+> 该行已不存在，加载器会打印 `entry "usage-stats" not found` 警告（只是警告，不影响启动）。
 
 改完 host 半边后需要**重启 DSH Desktop**（插件在启动时组合）；只改客户端 bundle 的话
 刷新页面即可。`dsh plugin` 的重装不会覆盖本插件 —— 它不来自 registry。

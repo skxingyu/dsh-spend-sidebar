@@ -112,6 +112,9 @@ if (DRY_RUN) {
 	if (current.includes(UPSTREAM_PKG)) {
 		console.log(`would REMOVE from bundles  : ${UPSTREAM_PKG} (both register \`usageStats\`)`);
 	}
+	if (Object.hasOwn(manifest.dependencies ?? {}, UPSTREAM_PKG)) {
+		console.log(`would REMOVE from deps     : ${UPSTREAM_PKG}`);
+	}
 	process.exit(0);
 }
 
@@ -153,17 +156,28 @@ const removed = currentBundles.filter((b) => b === UPSTREAM_PKG);
 const kept = currentBundles.filter((b) => b !== UPSTREAM_PKG);
 const bundles = kept.includes(PKG) ? kept : [...kept, PKG];
 
+// Drop the upstream from `dependencies` too. A pnpm-managed profile (the web
+// one) declares it there, and leaving it behind means `pnpm install`
+// reinstalls a package nothing loads. Safe to drop even though the bundle
+// entry is what loads plugins: module resolution finds the fork by its own
+// directory name.
+const dependencies = { ...(manifest.dependencies ?? {}) };
+const depRemoved = Object.hasOwn(dependencies, UPSTREAM_PKG);
+delete dependencies[UPSTREAM_PKG];
+
 const backup = `${profilePkgPath}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
 await cp(profilePkgPath, backup, { force: true });
 await writeFile(profilePkgPath, `${JSON.stringify({
 	...manifest,
+	dependencies,
 	dsh: { ...manifest.dsh, profile: { ...manifest.dsh.profile, bundles } }
 }, null, 2)}\n`, "utf8");
 
 console.log(`\n✓ installed ${PKG}`);
 console.log(`  bundles : ${bundles.length} entries${kept.includes(PKG) ? " (already present)" : " (+1)"}`);
-if (removed.length > 0) {
-	console.log(`  replaced: removed ${UPSTREAM_PKG} from the bundle list`);
+if (removed.length > 0 || depRemoved) {
+	const what = [removed.length > 0 ? "bundle list" : null, depRemoved ? "dependencies" : null].filter(Boolean).join(" + ");
+	console.log(`  replaced: removed ${UPSTREAM_PKG} from ${what}`);
 	console.log(`            (${path.join(profileDir, "node_modules", UPSTREAM_PKG)} left on disk)`);
 }
 console.log(`  backup  : ${path.basename(backup)}`);
