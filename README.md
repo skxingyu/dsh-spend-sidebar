@@ -141,8 +141,13 @@ plugin tree failed to load: service "usageStats" has been registered at <UsageSt
 这跟行 id 无关 —— 正因为本插件用了**不同的**行 id（`usage-stats-sidebar`），两个条目
 才会都处于激活状态；若沿用同一个 id，反而会互相覆盖而不会冲突。
 
-所以 `install.mjs` 写 bundles 时会把 `dsh-spend` **移除**，不让两者并存。上游的
-文件仍保留在 `node_modules/dsh-spend/`，想换回去只要把 bundles 里的两个名字对调。
+所以 `install.mjs` 写 bundles 时会把 `dsh-spend` **移除**，不让两者并存。
+
+回退方式：`node install.mjs --uninstall` 会把 `dsh-spend-sidebar` 的条目摘掉，并在
+上游文件仍在磁盘上时把 `dsh-spend` 加回 bundles。若上游目录已经不在（例如被 Desktop
+的启动恢复流程删掉、或被 `pnpm install` 当作无引用包清理掉），脚本会明确告诉你需要
+`dsh plugin add dsh-spend` —— 它**不会**加一条指向不存在目录的 bundles 条目，那样会
+让整棵插件树启动失败。
 
 **不要试图用「禁用」绕过**：Desktop 只在 market provider 为 `community` 时读取
 `plugin-management` 状态里的 `disabledBundles`，其余情况该集合被强制置空

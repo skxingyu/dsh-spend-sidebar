@@ -91,12 +91,24 @@ if (manifest === null) {
 // --- uninstall ------------------------------------------------------------
 if (UNINSTALL) {
 	const bundles = (manifest.dsh?.profile?.bundles ?? []).filter((b) => b !== PKG);
+	// Put the upstream back so uninstalling does not leave the profile without
+	// any usage plugin. Only if its files are actually there -- a bundle entry
+	// pointing at a missing package fails the whole plugin tree at startup.
+	const upstreamDir = path.join(profileDir, "node_modules", UPSTREAM_PKG);
+	const canRestore = await exists(upstreamDir);
+	const restored = canRestore && !bundles.includes(UPSTREAM_PKG);
+	if (restored) bundles.push(UPSTREAM_PKG);
 	if (DRY_RUN) {
-		console.log("\nwould remove: the bundle entry, and the node_modules directory");
+		console.log("\nwould remove : the bundle entry for " + PKG);
+		console.log(restored
+			? `would restore: ${UPSTREAM_PKG} to the bundle list`
+			: `would NOT restore ${UPSTREAM_PKG} (not on disk — install it with \`dsh plugin add ${UPSTREAM_PKG}\`)`);
 		process.exit(0);
 	}
 	await writeFile(profilePkgPath, `${JSON.stringify({ ...manifest, dsh: { ...manifest.dsh, profile: { ...manifest.dsh.profile, bundles } } }, null, 2)}\n`, "utf8");
 	console.log(`\n✓ unregistered ${PKG}`);
+	if (restored) console.log(`  restored ${UPSTREAM_PKG} to the bundle list`);
+	else console.log(`  ⚠ ${UPSTREAM_PKG} is not on disk — run \`dsh plugin add ${UPSTREAM_PKG}\` if you want it back`);
 	console.log(`  ${target} was left in place — delete it manually if you want it gone`);
 	process.exit(0);
 }
@@ -178,7 +190,15 @@ console.log(`  bundles : ${bundles.length} entries${kept.includes(PKG) ? " (alre
 if (removed.length > 0 || depRemoved) {
 	const what = [removed.length > 0 ? "bundle list" : null, depRemoved ? "dependencies" : null].filter(Boolean).join(" + ");
 	console.log(`  replaced: removed ${UPSTREAM_PKG} from ${what}`);
-	console.log(`            (${path.join(profileDir, "node_modules", UPSTREAM_PKG)} left on disk)`);
+	// Report what is actually on disk rather than promising a rollback copy:
+	// the directory may already be gone (the Desktop recovery flow can remove
+	// a plugin outright, and `pnpm install` prunes unreferenced packages).
+	const upstreamDir = path.join(profileDir, "node_modules", UPSTREAM_PKG);
+	if (await exists(upstreamDir)) {
+		console.log(`            ${upstreamDir} left on disk — restore by swapping the two names back`);
+	} else {
+		console.log(`            ${upstreamDir} is NOT on disk; re-install it with \`dsh plugin add ${UPSTREAM_PKG}\` to roll back`);
+	}
 }
 console.log(`  backup  : ${path.basename(backup)}`);
 console.log("\n  restart DSH Desktop: the host half is composed at startup");
