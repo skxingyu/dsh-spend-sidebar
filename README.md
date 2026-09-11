@@ -50,6 +50,34 @@ CSS 的 `data-plugin` tag 都不与上游撞车。不过**挂载层面它替换�
 > `dsh-spend:currency`（改名会丢掉你已选的显示货币）。导出的 CSV/JSON 文件名已经换成
 > 新名字。
 
+### 模型计价目录（来自 dsh-ui-usage-billing）
+
+费率表主体移植自 [kenz1117/dsh-ui-usage-billing](https://github.com/kenz1117/dsh-ui-usage-billing)
+的 `MODEL_CATALOG`（25 家厂商 / 75 个模型，含峰谷时段价与「估算价」标记），用
+`tools/build-catalog.mjs` 从它的 TypeScript 源码**直接导入生成**
+`lib/model-catalog-data.json` —— 数值就是 billing 所发布的，无手工转抄：
+
+```bash
+git clone --depth 1 https://github.com/kenz1117/dsh-ui-usage-billing /tmp/billing
+node tools/build-catalog.mjs /tmp/billing        # 重新生成 lib/model-catalog-data.json
+```
+
+计价口径是本移植里最重要的差异：**每行价格保留原生币种**（`currency: "CNY" | "USD"`，
+billing 目录里 57 条人民币价 + 19 条美元价），聚合时按宿主提供的实时汇率
+（`getRates()` 的 `{ USD, CNY }` 报价）换算成显示币种——2 元人民币显示为美元即 ÷6.79。
+旧版（上游 dsh-spend）把所有价格当美元，国内厂商会被悄悄算错好几倍。
+
+匹配规则：
+
+- 日志里的厂商 model id（如 `deepseek-v4-flash`）先过 billing 的 **88 条别名表**
+  归并到目录键（`flash`），同一模型无论用哪个 id 记账，单价一致；
+- 同一模型两边都有价时，**billing 目录优先**（它跟厂商调价更紧，如 DeepSeek
+  2026-09-10 调价），`knowledge.js` 里手工维护的旧价只补目录没有的模型；
+- 没有 `currency` 字段的行（旧手工行）按显示币种原样计价，行为不变。
+
+`test-catalog.mjs` 验证以上全部口径，包括换算方向（CNY→USD 除以汇率、USD→CNY
+乘以汇率、同币种不换算）——换算方向写反过一次，是这条测试抓出来的。
+
 ### 两行的口径
 
 - **当月**：`byDay` 中本月前缀的日行求和。**没有**用 `totals` —— 那个累计的是历史上
@@ -66,15 +94,13 @@ CSS 的 `data-plugin` tag 都不与上游撞车。不过**挂载层面它替换�
 > 上游悬停浮层里的「套餐 / 余额」摘要在本版删除了：`Dashboard` 里的 `PlansSection`
 > 本来就完整渲染同一批数据，点击即可见，摘要属于重复。
 
-### 与 billing 卡片共存
+### 与 billing 卡片的位置关系
 
-两者注册到同一个 `list` 槽位。槽位按 `order` **升序**渲染
-（见 `dsh-client-ui-slots/lib/index.js` 的 `a.options.order - b.options.order`）：
-
-- billing：`order: -10`
-- 本插件：`order: -9`
-
-所以 billing 卡片在上、本卡片在下，且不依赖加载顺序。
+billing 的卡片用的是同一个 `sidebar.footer.action` 槽位（`list` 类型，按 `order`
+升序渲染，见 `dsh-client-ui-slots/lib/index.js`）：billing `order: -10`、本插件
+`order: -9`，同装时 billing 在上、本卡片在下。本插件的计价目录就来自它的
+`MODEL_CATALOG`（见上方「模型计价目录」）——数据取自它的源码，但挂载互相独立：
+它装不装都不影响本插件的费率表。
 
 ## 安装
 
@@ -179,11 +205,14 @@ node test.mjs
 ```
 lib/client.js         浏览器半边：卡片 + 模态框（本仓库的主要改动）
 lib/index.js          host 半边：usageStats/query、定价、余额探测
-lib/stats.js          聚合与统计
-lib/knowledge.js      内置厂商/模型定价知识库
+lib/stats.js          聚合与统计（含原生币种 → 显示币种换算）
+lib/knowledge.js      厂商知识库 + 计价目录合并逻辑（目录优先）
+lib/model-catalog-data.json  计价目录数据（tools/build-catalog.mjs 生成，勿手改）
+tools/build-catalog.mjs      从 dsh-ui-usage-billing 源码重新生成目录
 cordis.patch.yml      profile 插入条目（行 id `usage-stats-sidebar`）与默认配置
 install.mjs           安装 / 卸载脚本
 test.mjs              冒烟测试
+test-catalog.mjs      计价目录与币种换算测试
 UPSTREAM.README*.md   上游原始文档（未改动，已标注为历史）
 ```
 
