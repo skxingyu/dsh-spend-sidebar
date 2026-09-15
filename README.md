@@ -1,5 +1,10 @@
 # dsh-spend-sidebar
 
+> **⚠️ 已停止维护（2026-09-15）**：作者已改用
+> [kenz1117/dsh-ui-usage-billing](https://github.com/kenz1117/dsh-ui-usage-billing)
+> 作为主力用量插件（本仓库的计价目录本来就移植自它）。仓库保留作为参考，不再更新；
+> 请勿安装。卸载方式见文末。
+
 一个**独立的** DSH 用量仪表盘插件：把用量做成侧边栏底部的双行卡片，点击弹出居中大窗口。
 
 - 侧边栏卡片：**当月** 费用 + Token / **今日** 费用 + Token
@@ -119,8 +124,11 @@ node install.mjs --uninstall # 只摘掉 bundles 条目，目录保留
 
 脚本做三件事：
 
-1. 把 `lib/` 与清单文件复制到
-   `~/.dsh/profiles/<profile>/node_modules/dsh-spend-sidebar/`
+1. 把插件负载放进 `~/.dsh/profiles/<profile>/node_modules/dsh-spend-sidebar/`。
+   具体方式取决于该 profile 是否由 pnpm 管理（存在 `node_modules/.modules.yaml`）：
+   - **pnpm 管理的 profile**（`web`、`desktop` 都算）：写一条
+     `"dsh-spend-sidebar": "file:<本仓库路径>"` 依赖，再跑 `pnpm install` 建立链接
+   - **否则**：直接把负载复制进去
 2. 把包名追加到 `dsh.profile.bundles` —— 这一步是必须的，加载器只**过滤**现有的
    bundles 列表（`desktopBundleList`），从不依据 `dependencies` 推导它
 3. 把上游 `dsh-spend` 从 bundles（以及 `dependencies`，若该 profile 是 pnpm 管理的）
@@ -128,10 +136,26 @@ node install.mjs --uninstall # 只摘掉 bundles 条目，目录保留
 
 脚本会先备份 `package.json`，且是幂等的，重复运行不会写重复条目。
 
-**不**给本插件写 `dependencies` 条目：DSH 对每个 bundle 用标准 Node 模块解析从 profile
-目录找包，再读它的 `dsh.bundle.patch`（见 `package-overlay-*.js` 的 `readCandidate`），
-一个普通目录就够了。写 `file:` 反而把仓库路径变成长期契约：仓库一挪，下次 `pnpm install`
-就崩，而复制这一步已经让那个声明多余了。
+**为什么 pnpm 管理的 profile 必须写 `dependencies`**：pnpm 拥有整个 `node_modules`
+目录，一旦它判定需要重建，就会**删掉整个目录**并按 lockfile 重建 —— 任何它不跟踪的
+东西（包括手工复制进去的插件目录）都会被静默抹掉。这不是推测，正是 `web` profile
+当初坏掉的原因：`pnpm install` 重建了 `node_modules`，`dsh-spend-sidebar` 消失了，
+但它的 `dsh.profile.bundles` 条目还在，于是每次启动都死于
+
+```
+dsh: cannot resolve profile bundle "dsh-spend-sidebar"
+```
+
+直到 launcher 的 180 秒就绪轮询超时。`file:` 依赖会被 lockfile 跟踪，因此每次
+`pnpm install` 都会把它装回来（实测：整个删除 `node_modules` 后重装，插件自动恢复）。
+
+代价是本仓库路径成了长期契约 —— 挪动本目录会让下次 `pnpm install` 失败。这是**有意
+的取舍**：路径固定总好过插件随时消失；且它只作用于 pnpm 管理的 profile，在那里
+"手工复制"本来就不持久。
+
+DSH 本身不需要这个条目：它对每个 bundle 用标准 Node 模块解析从 profile 目录找包，
+再读它的 `dsh.bundle.patch`（见 `package-overlay-*.js` 的 `readCandidate`）。该条目
+存在的唯一目的就是**不让 pnpm 把它删掉**。
 
 > 加载器要求找到的 manifest 的 `name` **严格等于** bundle 名，所以目录名和
 > `package.json` 的 `name` 都必须保持 `dsh-spend-sidebar`。
@@ -142,9 +166,13 @@ node install.mjs --uninstall # 只摘掉 bundles 条目，目录保留
 
 | | `desktop` | `web` |
 |---|---|---|
-| 依赖声明 | 无（只有 bundles） | pnpm 管理，`dependencies` + `bundles` 都有 |
+| node_modules 归属 | pnpm 管理 | pnpm 管理 |
+| 依赖声明 | pnpm 管理，脚本会写 `file:` 条目 | pnpm 管理，脚本会写 `file:` 条目 |
 | 启动方式 | DSH Desktop 组合 | `dsh --profile web` |
-| 脚本动作 | 复制 + 改 bundles | 复制 + 改 bundles + 改 dependencies |
+| 脚本动作 | 写依赖 + 改 bundles + `pnpm install` | 同左 |
+
+两者都是 pnpm 管理的，因此都走 `file:` 依赖分支。若某个 profile 没有
+`node_modules/.modules.yaml`（即非 pnpm 管理），脚本自动退回"直接复制"的旧方式。
 
 web profile 的 `dshmarket` 只对「在 `dependencies` 但不在 `bundles`」的包做热挂载，
 所以移除上游时**两处都要清**，否则 `pnpm install` 会把没人加载的包装回来。
@@ -220,3 +248,15 @@ UPSTREAM.README*.md   上游原始文档（未改动，已标注为历史）
 
 MIT。原始版权归 ziheng（[nonewind/dsh-spend](https://github.com/nonewind/dsh-spend)），
 改造部分归 skxingyu。完整声明见 [`LICENSE`](LICENSE)。
+
+## 卸载
+
+```bash
+node install.mjs --uninstall --profile desktop   # 摘掉 bundles 条目（目录需手动删）
+node install.mjs --uninstall --profile web       # 同上；web 还需删 dependencies 条目
+rm -rf ~/.dsh/profiles/<profile>/node_modules/dsh-spend-sidebar
+rm -f  ~/.dsh/storages/dsh-spend-scan-cache.json  # 本插件的扫描缓存
+```
+
+`--uninstall` 在上游 dsh-spend 文件仍在磁盘时会把它加回 bundles；本插件已停用时
+直接删目录即可，不要留一条指向空目录的 bundle 条目（会让整棵插件树启动失败）。
